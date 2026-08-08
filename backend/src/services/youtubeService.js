@@ -1,12 +1,11 @@
 const { exec } = require('child_process');
 const axios = require('axios');
-const ytdl = require('@distube/ytdl-core');
 
 // In-memory cache of resolved audio stream URLs (videoId -> { url, expiresAt })
 const streamCache = new Map();
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (Google CDN URLs expire in ~6h)
 
-// Detect platform-appropriate yt-dlp command (fallback only)
+// Detect platform-appropriate yt-dlp command
 const IS_WINDOWS = process.platform === 'win32';
 const YT_DLP_CMD = IS_WINDOWS ? 'python -m yt_dlp' : 'yt-dlp';
 
@@ -36,7 +35,7 @@ class YouTubeService {
   }
 
   /**
-   * Fetches metadata & high-res artwork using oEmbed + ytdl-core for duration
+   * Fetches metadata & high-res artwork using oEmbed + yt-dlp for duration
    */
   static async extractMetadata(rawUrl) {
     const videoId = this.extractVideoId(rawUrl);
@@ -63,11 +62,14 @@ class YouTubeService {
         console.warn(`oEmbed notice for ${videoId}:`, err.message);
       }
 
-      // 2. Get duration via ytdl-core (pure JS)
+      // 2. Get duration via yt-dlp
       try {
-        const info = await ytdl.getBasicInfo(youtubeUrl);
-        const dur = parseInt(info.videoDetails.lengthSeconds, 10);
-        if (!isNaN(dur) && dur > 0) durationSeconds = dur;
+        const dur = await this._ytdlpExec(
+          `${YT_DLP_CMD} --print duration "${youtubeUrl}"`,
+          15000
+        );
+        const parsed = parseInt(dur.trim(), 10);
+        if (!isNaN(parsed) && parsed > 0) durationSeconds = parsed;
       } catch (e) {
         // Duration extraction is optional; use default
       }
@@ -114,9 +116,9 @@ class YouTubeService {
   }
 
   /**
-   * Extracts the real, direct, ad-free audio stream URL.
-   * PRIMARY: Uses @distube/ytdl-core (pure JavaScript, works everywhere)
-   * FALLBACK: Uses yt-dlp CLI (requires Python + yt-dlp installed)
+   * Uses yt-dlp to extract the real, direct, ad-free audio stream URL.
+   * This is the ONLY reliable method — ytdl-core JS library is broken
+   * against current YouTube player changes.
    */
   static async getDirectAudioStreamUrl(videoId) {
     // Check cache first
@@ -127,107 +129,80 @@ class YouTubeService {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // ===== PRIMARY: @distube/ytdl-core (pure JS, no external deps) =====
+    // yt-dlp is the only reliable extractor (YouTube constantly breaks JS parsers)
     try {
-      const info = await ytdl.getInfo(youtubeUrl);
-      const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-      
-      if (audioFormats.length > 0) {
-        audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
-        const bestAudio = audioFormats[0];
-        const url = bestAudio.url;
-        streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
-        return url;
-      }
-    } catch (err) {
-      console.warn(`[ytdl-core] Failed for ${videoId}: ${err.message}`);
-    }
-
-    // ===== FALLBACK: yt-dlp CLI =====
-    try {
-      const stdout = await this._execPromise(
+      const stdout = await this._ytdlpExec(
         `${YT_DLP_CMD} -g -f bestaudio "${youtubeUrl}"`,
         30000
       );
+
       if (stdout && stdout.trim().startsWith('http')) {
         const url = stdout.trim().split('\n')[0].trim();
         streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
+        console.log(`[STREAM] Resolved audio URL for ${videoId} (${url.substring(0, 60)}...)`);
         return url;
       }
     } catch (err) {
-      console.error(`[yt-dlp] FAILED for ${videoId}:`, err.message);
+      console.error(`[STREAM] yt-dlp extraction FAILED for ${videoId}:`, err.message);
     }
 
+    console.error(`[STREAM] CRITICAL: Could not resolve audio URL for ${videoId}`);
     return null;
   }
 
   /**
-   * Streams audio directly using ytdl-core pipe (fastest method).
-   * Falls back to URL proxy if direct pipe fails.
+   * Pipes audio from YouTube CDN through our server to the client.
    */
   static async proxyAudioStream(videoId, req, res) {
-    // Try cached URL first (instant playback)
-    const cachedUrl = await this.getDirectAudioStreamUrl(videoId);
+    const directUrl = await this.getDirectAudioStreamUrl(videoId);
 
-    if (cachedUrl) {
-      try {
-        const headers = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        };
-        if (req.headers.range) {
-          headers['Range'] = req.headers.range;
-        }
-
-        const response = await axios({
-          method: 'get',
-          url: cachedUrl,
-          responseType: 'stream',
-          headers,
-          timeout: 15000
-        });
-
-        res.status(response.status);
-        if (response.headers['content-type']) res.set('Content-Type', response.headers['content-type']);
-        if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
-        if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
-        if (response.headers['accept-ranges']) res.set('Accept-Ranges', response.headers['accept-ranges']);
-        res.set('Cache-Control', 'public, max-age=3600');
-
-        response.data.pipe(res);
-
-        response.data.on('error', (err) => {
-          console.warn('Stream pipe error:', err.message);
-          if (!res.headersSent) res.redirect(this.getFallbackAudio());
-        });
-        return;
-      } catch (proxyErr) {
-        console.warn('Cached URL proxy failed, trying direct pipe:', proxyErr.message);
-        streamCache.delete(videoId);
-      }
+    if (!directUrl) {
+      console.error(`[STREAM] No audio URL for ${videoId} — returning fallback`);
+      return res.redirect(this.getFallbackAudio());
     }
 
-    // Direct ytdl-core pipe (no URL resolution needed)
     try {
-      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const stream = ytdl(youtubeUrl, {
-        filter: 'audioonly',
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25  // 32MB buffer for smooth streaming
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      };
+
+      // Forward Range header for seeking support
+      if (req.headers.range) {
+        headers['Range'] = req.headers.range;
+      }
+
+      const response = await axios({
+        method: 'get',
+        url: directUrl,
+        responseType: 'stream',
+        headers,
+        timeout: 15000
       });
 
-      res.set('Content-Type', 'audio/webm');
-      res.set('Transfer-Encoding', 'chunked');
+      // Forward content headers from Google CDN to the client
+      res.status(response.status); // 200 or 206
+      if (response.headers['content-type']) res.set('Content-Type', response.headers['content-type']);
+      if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
+      if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
+      if (response.headers['accept-ranges']) res.set('Accept-Ranges', response.headers['accept-ranges']);
       res.set('Cache-Control', 'public, max-age=3600');
 
-      stream.pipe(res);
+      response.data.pipe(res);
 
-      stream.on('error', (err) => {
-        console.warn('ytdl direct pipe error:', err.message);
-        if (!res.headersSent) res.redirect(this.getFallbackAudio());
+      response.data.on('error', (err) => {
+        console.warn('Stream pipe error:', err.message);
+        if (!res.headersSent) {
+          res.redirect(this.getFallbackAudio());
+        }
       });
-    } catch (err) {
-      console.error('All stream methods failed:', err.message);
-      if (!res.headersSent) res.redirect(this.getFallbackAudio());
+    } catch (proxyErr) {
+      console.warn('Proxy stream error:', proxyErr.message);
+      // Invalidate cache on error
+      streamCache.delete(videoId);
+
+      if (!res.headersSent) {
+        res.redirect(this.getFallbackAudio());
+      }
     }
   }
 
@@ -271,11 +246,21 @@ class YouTubeService {
     return 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3';
   }
 
-  static _execPromise(cmd, timeoutMs = 12000) {
+  /**
+   * CRITICAL FIX: yt-dlp outputs warnings to stderr which causes exec() to
+   * report a non-zero exit code on Windows PowerShell — but stdout still
+   * contains the valid URL. This method captures stdout regardless of exit code.
+   */
+  static _ytdlpExec(cmd, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
       exec(cmd, { timeout: timeoutMs }, (error, stdout, stderr) => {
+        // yt-dlp often returns exit code 1 due to warnings on stderr,
+        // but stdout still contains valid output. Check stdout first.
+        if (stdout && stdout.trim().length > 0) {
+          return resolve(stdout);
+        }
         if (error) return reject(error);
-        resolve(stdout);
+        resolve(stdout || '');
       });
     });
   }
