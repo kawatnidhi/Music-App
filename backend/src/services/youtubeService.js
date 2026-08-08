@@ -1,13 +1,9 @@
-const { exec } = require('child_process');
+const youtubedl = require('youtube-dl-exec');
 const axios = require('axios');
 
 // In-memory cache of resolved audio stream URLs (videoId -> { url, expiresAt })
 const streamCache = new Map();
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (Google CDN URLs expire in ~6h)
-
-// Detect platform-appropriate yt-dlp command
-const IS_WINDOWS = process.platform === 'win32';
-const YT_DLP_CMD = IS_WINDOWS ? 'python -m yt_dlp' : 'yt-dlp';
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 class YouTubeService {
   /**
@@ -35,7 +31,7 @@ class YouTubeService {
   }
 
   /**
-   * Fetches metadata & high-res artwork using oEmbed + yt-dlp for duration
+   * Fetches metadata & high-res artwork using oEmbed + youtube-dl-exec for duration
    */
   static async extractMetadata(rawUrl) {
     const videoId = this.extractVideoId(rawUrl);
@@ -62,22 +58,22 @@ class YouTubeService {
         console.warn(`oEmbed notice for ${videoId}:`, err.message);
       }
 
-      // 2. Get duration via yt-dlp
+      // 2. Get duration via youtube-dl-exec
       try {
-        const dur = await this._ytdlpExec(
-          `${YT_DLP_CMD} --print duration "${youtubeUrl}"`,
-          15000
-        );
-        const parsed = parseInt(dur.trim(), 10);
+        const durOutput = await youtubedl(youtubeUrl, {
+          print: 'duration',
+          noWarnings: true
+        });
+        const parsed = parseInt(String(durOutput).trim(), 10);
         if (!isNaN(parsed) && parsed > 0) durationSeconds = parsed;
       } catch (e) {
-        // Duration extraction is optional; use default
+        // Duration extraction optional
       }
 
       const mins = Math.floor(durationSeconds / 60);
       const secs = durationSeconds % 60;
 
-      // Pre-warm the stream cache so first play is instant
+      // Pre-warm stream cache immediately in the background
       this.getDirectAudioStreamUrl(videoId).catch(() => {});
 
       return {
@@ -116,105 +112,123 @@ class YouTubeService {
   }
 
   /**
-   * Uses yt-dlp to extract the real, direct, ad-free audio stream URL.
-   * This is the ONLY reliable method — ytdl-core JS library is broken
-   * against current YouTube player changes.
+   * Uses bundled youtube-dl-exec binary to resolve Google CDN audio stream URL.
    */
-  static async getDirectAudioStreamUrl(videoId) {
-    // Check cache first
-    const cached = streamCache.get(videoId);
-    if (cached && Date.now() < cached.expiresAt) {
-      return cached.url;
+  static async getDirectAudioStreamUrl(videoId, bypassCache = false) {
+    if (!bypassCache) {
+      const cached = streamCache.get(videoId);
+      if (cached && Date.now() < cached.expiresAt) {
+        return cached.url;
+      }
     }
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // yt-dlp is the only reliable extractor (YouTube constantly breaks JS parsers)
     try {
-      const stdout = await this._ytdlpExec(
-        `${YT_DLP_CMD} -g -f bestaudio "${youtubeUrl}"`,
-        30000
-      );
+      console.log(`[STREAM] Resolving Google CDN audio URL for videoId=${videoId}...`);
+      const output = await youtubedl(youtubeUrl, {
+        getUrl: true,
+        format: 'bestaudio',
+        noWarnings: true
+      });
 
-      if (stdout && stdout.trim().startsWith('http')) {
-        const url = stdout.trim().split('\n')[0].trim();
-        streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
-        console.log(`[STREAM] Resolved audio URL for ${videoId} (${url.substring(0, 60)}...)`);
-        return url;
+      if (output && typeof output === 'string' && output.trim().startsWith('http')) {
+        const streamUrl = output.trim().split('\n')[0].trim();
+        streamCache.set(videoId, { url: streamUrl, expiresAt: Date.now() + CACHE_TTL_MS });
+        console.log(`[STREAM] SUCCESS: Resolved stream URL for ${videoId}`);
+        return streamUrl;
       }
     } catch (err) {
-      console.error(`[STREAM] yt-dlp extraction FAILED for ${videoId}:`, err.message);
+      console.error(`[STREAM] youtube-dl-exec extraction error for ${videoId}:`, err.message);
     }
 
-    console.error(`[STREAM] CRITICAL: Could not resolve audio URL for ${videoId}`);
     return null;
   }
 
   /**
-   * Pipes audio from YouTube CDN through our server to the client.
+   * Pipes audio from Google CDN directly to client response with auto-retry.
    */
   static async proxyAudioStream(videoId, req, res) {
-    const directUrl = await this.getDirectAudioStreamUrl(videoId);
+    let directUrl = await this.getDirectAudioStreamUrl(videoId);
 
     if (!directUrl) {
-      console.error(`[STREAM] No audio URL for ${videoId} — returning fallback`);
-      return res.redirect(this.getFallbackAudio());
+      console.error(`[STREAM] ERROR: Could not resolve stream URL for videoId=${videoId}`);
+      return res.status(502).json({
+        success: false,
+        error: 'Unable to resolve stream for this YouTube video.'
+      });
     }
 
     try {
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      };
-
-      // Forward Range header for seeking support
-      if (req.headers.range) {
-        headers['Range'] = req.headers.range;
-      }
-
-      const response = await axios({
-        method: 'get',
-        url: directUrl,
-        responseType: 'stream',
-        headers,
-        timeout: 15000
-      });
-
-      // Forward content headers from Google CDN to the client
-      res.status(response.status); // 200 or 206
-      if (response.headers['content-type']) res.set('Content-Type', response.headers['content-type']);
-      if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
-      if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
-      if (response.headers['accept-ranges']) res.set('Accept-Ranges', response.headers['accept-ranges']);
-      res.set('Cache-Control', 'public, max-age=3600');
-
-      response.data.pipe(res);
-
-      response.data.on('error', (err) => {
-        console.warn('Stream pipe error:', err.message);
-        if (!res.headersSent) {
-          res.redirect(this.getFallbackAudio());
-        }
-      });
+      await this._pipeStream(directUrl, req, res);
     } catch (proxyErr) {
-      console.warn('Proxy stream error:', proxyErr.message);
-      // Invalidate cache on error
+      console.warn(`[STREAM] First proxy attempt failed (${proxyErr.message}), retrying with fresh extraction for ${videoId}...`);
       streamCache.delete(videoId);
 
+      // Retry with fresh extraction once
+      const freshUrl = await this.getDirectAudioStreamUrl(videoId, true);
+      if (freshUrl) {
+        try {
+          await this._pipeStream(freshUrl, req, res);
+          return;
+        } catch (retryErr) {
+          console.error(`[STREAM] Retry proxy attempt also failed: ${retryErr.message}`);
+        }
+      }
+
       if (!res.headersSent) {
-        res.redirect(this.getFallbackAudio());
+        return res.status(502).json({
+          success: false,
+          error: 'Failed to stream audio content from YouTube CDN.'
+        });
       }
     }
   }
 
+  static async _pipeStream(directUrl, req, res) {
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://www.youtube.com/'
+    };
+
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
+    }
+
+    const response = await axios({
+      method: 'get',
+      url: directUrl,
+      responseType: 'stream',
+      headers,
+      timeout: 20000
+    });
+
+    res.status(response.status);
+    if (response.headers['content-type']) res.set('Content-Type', response.headers['content-type']);
+    if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
+    if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
+    if (response.headers['accept-ranges']) res.set('Accept-Ranges', response.headers['accept-ranges']);
+    res.set('Cache-Control', 'public, max-age=3600');
+
+    response.data.pipe(res);
+
+    return new Promise((resolve, reject) => {
+      response.data.on('end', resolve);
+      response.data.on('error', (err) => {
+        reject(err);
+      });
+    });
+  }
+
   /**
-   * Pre-warm cache for a videoId (called after publishing a song)
+   * Pre-warm stream cache
    */
   static async prewarmCache(videoId) {
     try {
       await this.getDirectAudioStreamUrl(videoId);
-      console.log(`[PREWARM] Cache warmed for ${videoId}`);
+      console.log(`[PREWARM] Stream cache warmed for videoId=${videoId}`);
     } catch (e) {
-      console.warn(`[PREWARM] Failed for ${videoId}`);
+      console.warn(`[PREWARM] Stream cache prewarm failed for videoId=${videoId}`);
     }
   }
 
@@ -240,29 +254,6 @@ class YouTubeService {
       .replace(/\s*-\s*Topic$/i, '')
       .replace(/VEVO$/i, '')
       .trim();
-  }
-
-  static getFallbackAudio() {
-    return 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3';
-  }
-
-  /**
-   * CRITICAL FIX: yt-dlp outputs warnings to stderr which causes exec() to
-   * report a non-zero exit code on Windows PowerShell — but stdout still
-   * contains the valid URL. This method captures stdout regardless of exit code.
-   */
-  static _ytdlpExec(cmd, timeoutMs = 15000) {
-    return new Promise((resolve, reject) => {
-      exec(cmd, { timeout: timeoutMs }, (error, stdout, stderr) => {
-        // yt-dlp often returns exit code 1 due to warnings on stderr,
-        // but stdout still contains valid output. Check stdout first.
-        if (stdout && stdout.trim().length > 0) {
-          return resolve(stdout);
-        }
-        if (error) return reject(error);
-        resolve(stdout || '');
-      });
-    });
   }
 }
 

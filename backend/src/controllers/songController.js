@@ -60,12 +60,12 @@ class SongController {
         return await YouTubeService.proxyAudioStream(videoId, req, res);
       }
 
-      // 3. Fallback
-      return res.redirect(YouTubeService.getFallbackAudio());
+      // 3. Unknown or invalid ID
+      return res.status(404).json({ success: false, error: 'Track or video ID not found' });
     } catch (err) {
       console.error('Audio stream handler error:', err);
       if (!res.headersSent) {
-        return res.redirect(YouTubeService.getFallbackAudio());
+        return res.status(500).json({ success: false, error: 'Internal streaming engine error: ' + err.message });
       }
     }
   }

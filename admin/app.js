@@ -325,27 +325,31 @@ function toggleTestAudio() {
     isAudioPlaying = false;
     icon.className = 'fa-solid fa-play';
   } else {
-    // Always use our proxy endpoint for YouTube songs
+    // Always use API_BASE proxy endpoint for audio streams
     let playUrl;
     if (currentPreview.videoId) {
-      playUrl = `/api/songs/stream/${currentPreview.videoId}`;
+      playUrl = `${API_BASE}/songs/stream/${currentPreview.videoId}`;
     } else if (currentPreview.id) {
-      playUrl = `/api/songs/stream/${currentPreview.id}`;
-    } else if (currentPreview.streamUrl && currentPreview.streamUrl.startsWith('/')) {
+      playUrl = `${API_BASE}/songs/stream/${currentPreview.id}`;
+    } else if (currentPreview.streamUrl && currentPreview.streamUrl.startsWith('http')) {
       playUrl = currentPreview.streamUrl;
+    } else if (currentPreview.streamUrl) {
+      playUrl = `${API_BASE}${currentPreview.streamUrl.startsWith('/') ? '' : '/'}${currentPreview.streamUrl}`;
     } else {
-      playUrl = currentPreview.streamUrl || 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3';
+      showToast('No audio stream available for this preview', 'error');
+      return;
     }
 
+    showToast('Loading ad-free stream preview...', 'success');
     audioPlayer.src = playUrl;
     audioPlayer.load();
     audioPlayer.play().then(() => {
       isAudioPlaying = true;
       icon.className = 'fa-solid fa-pause';
-      showToast('Playing ad-free stream preview...', 'success');
+      showToast('Playing ad-free stream preview', 'success');
     }).catch(err => {
       console.warn('Playback notice:', err.message);
-      showToast('Audio loading — please wait a moment and try again', 'error');
+      showToast('Audio buffering — please wait a moment and tap play again', 'error');
     });
   }
 }
@@ -357,14 +361,15 @@ function playCatalogTrack(id) {
   currentPreview = { ...track };
   updatePreviewUI(track);
 
-  // Always use our proxy endpoint
+  // Always use API_BASE proxy endpoint
   let playUrl;
   if (track.videoId) {
-    playUrl = `/api/songs/stream/${track.videoId}`;
+    playUrl = `${API_BASE}/songs/stream/${track.videoId}`;
   } else {
-    playUrl = `/api/songs/stream/${track.id}`;
+    playUrl = `${API_BASE}/songs/stream/${track.id}`;
   }
 
+  showToast(`Loading "${track.title}"...`, 'success');
   audioPlayer.src = playUrl;
   audioPlayer.load();
   audioPlayer.play().then(() => {
@@ -373,7 +378,7 @@ function playCatalogTrack(id) {
     showToast(`Streaming "${track.title}" (Ad-Free)`, 'success');
   }).catch(e => {
     console.warn('Catalog playback notice:', e.message);
-    showToast('Audio loading — please wait a moment and try again', 'error');
+    showToast('Audio buffering — please wait a moment and tap play again', 'error');
   });
 }
 
