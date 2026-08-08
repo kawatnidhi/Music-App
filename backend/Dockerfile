@@ -18,14 +18,14 @@ RUN pip3 install --no-cache-dir yt-dlp
 WORKDIR /app
 
 # Copy package files and install dependencies
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm install --production
 
-# Copy source code and assets
+# Copy full repository including admin, web_app, and backend
 COPY . .
 
 # Expose backend streaming port
 EXPOSE 5000
 
 # Start production server
-CMD ["node", "src/server.js"]
+CMD ["node", "backend/src/server.js"]
