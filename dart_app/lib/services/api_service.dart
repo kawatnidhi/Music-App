@@ -5,10 +5,10 @@ import '../models/playlist.dart';
 import '../models/user_profile.dart';
 
 class ApiService {
-  // Supports local emulator (10.0.2.2), physical phone LAN IP, and Production Cloud (Render)
-  static String baseUrl = 'http://localhost:5000/api';
+  // Live Cloud Streaming Engine on Render
+  static String baseUrl = 'https://soundvault-music-engine.onrender.com/api';
 
-  // Call this to switch to cloud backend on Render
+  // Call this to switch to custom URL or local emulator if needed
   static void setCloudProductionUrl(String renderDomain) {
     baseUrl = renderDomain.endsWith('/api') ? renderDomain : '$renderDomain/api';
   }

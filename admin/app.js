@@ -1,5 +1,5 @@
-// Dynamic API Base URL (Supports Local & Render/Vercel Cloud Deployment)
-const API_BASE = (window.ENV_API_URL) || (window.location.port === '5000' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : '/api');
+// Dynamic API Base URL (Local vs Live Render Cloud Backend)
+const API_BASE = (window.ENV_API_URL) || (window.location.port === '5000' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '/api' : 'https://soundvault-music-engine.onrender.com/api');
 
 // Current active track preview state
 let currentPreview = {
