@@ -58,10 +58,11 @@ class YouTubeService {
         console.warn(`oEmbed notice for ${videoId}:`, err.message);
       }
 
-      // 2. Get duration via youtube-dl-exec
+      // 2. Get duration via youtube-dl-exec with android client
       try {
         const durOutput = await youtubedl(youtubeUrl, {
           print: 'duration',
+          extractorArgs: 'youtube:player_client=android',
           noWarnings: true
         });
         const parsed = parseInt(String(durOutput).trim(), 10);
@@ -112,7 +113,8 @@ class YouTubeService {
   }
 
   /**
-   * Uses bundled youtube-dl-exec binary to resolve Google CDN audio stream URL.
+   * Uses bundled youtube-dl-exec binary with Android player_client payload
+   * to resolve unthrottled Google CDN audio stream URLs on cloud servers.
    */
   static async getDirectAudioStreamUrl(videoId, bypassCache = false) {
     if (!bypassCache) {
@@ -124,29 +126,50 @@ class YouTubeService {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
+    // Try primary Android player client (bypasses cloud IP bot checks)
     try {
-      console.log(`[STREAM] Resolving Google CDN audio URL for videoId=${videoId}...`);
+      console.log(`[STREAM] Resolving Google CDN audio URL for videoId=${videoId} using android client...`);
       const output = await youtubedl(youtubeUrl, {
         getUrl: true,
-        format: 'bestaudio',
+        format: 'bestaudio/best',
+        extractorArgs: 'youtube:player_client=android',
         noWarnings: true
       });
 
       if (output && typeof output === 'string' && output.trim().startsWith('http')) {
         const streamUrl = output.trim().split('\n')[0].trim();
         streamCache.set(videoId, { url: streamUrl, expiresAt: Date.now() + CACHE_TTL_MS });
-        console.log(`[STREAM] SUCCESS: Resolved stream URL for ${videoId}`);
+        console.log(`[STREAM] SUCCESS: Resolved audio stream URL for ${videoId}`);
         return streamUrl;
       }
     } catch (err) {
-      console.error(`[STREAM] youtube-dl-exec extraction error for ${videoId}:`, err.message);
+      console.warn(`[STREAM] Android client extraction failed for ${videoId}:`, err.message);
+    }
+
+    // Fallback: try plain extraction
+    try {
+      console.log(`[STREAM] Falling back to standard extraction for videoId=${videoId}...`);
+      const output = await youtubedl(youtubeUrl, {
+        getUrl: true,
+        format: 'bestaudio/best',
+        noWarnings: true
+      });
+
+      if (output && typeof output === 'string' && output.trim().startsWith('http')) {
+        const streamUrl = output.trim().split('\n')[0].trim();
+        streamCache.set(videoId, { url: streamUrl, expiresAt: Date.now() + CACHE_TTL_MS });
+        console.log(`[STREAM] SUCCESS: Resolved fallback stream URL for ${videoId}`);
+        return streamUrl;
+      }
+    } catch (err2) {
+      console.error(`[STREAM] Standard extraction error for ${videoId}:`, err2.message);
     }
 
     return null;
   }
 
   /**
-   * Pipes audio from Google CDN directly to client response with auto-retry.
+   * Pipes audio from Google CDN directly to client response.
    */
   static async proxyAudioStream(videoId, req, res) {
     let directUrl = await this.getDirectAudioStreamUrl(videoId);
@@ -162,19 +185,8 @@ class YouTubeService {
     try {
       await this._pipeStream(directUrl, req, res);
     } catch (proxyErr) {
-      console.warn(`[STREAM] First proxy attempt failed (${proxyErr.message}), retrying with fresh extraction for ${videoId}...`);
+      console.warn(`[STREAM] Proxy stream notice for ${videoId}:`, proxyErr.message);
       streamCache.delete(videoId);
-
-      // Retry with fresh extraction once
-      const freshUrl = await this.getDirectAudioStreamUrl(videoId, true);
-      if (freshUrl) {
-        try {
-          await this._pipeStream(freshUrl, req, res);
-          return;
-        } catch (retryErr) {
-          console.error(`[STREAM] Retry proxy attempt also failed: ${retryErr.message}`);
-        }
-      }
 
       if (!res.headersSent) {
         return res.status(502).json({
@@ -212,10 +224,17 @@ class YouTubeService {
 
     response.data.pipe(res);
 
-    return new Promise((resolve, reject) => {
+    // Destroy stream on client disconnect / seek
+    req.on('close', () => {
+      if (response.data && !response.data.destroyed) {
+        response.data.destroy();
+      }
+    });
+
+    return new Promise((resolve) => {
       response.data.on('end', resolve);
-      response.data.on('error', (err) => {
-        reject(err);
+      response.data.on('error', () => {
+        resolve();
       });
     });
   }
