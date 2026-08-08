@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "name": "soundvault-music-app",
+  "cleanUrls": true,
+  "routes": [
+    {
+      "src": "/admin/(.*)",
+      "dest": "/admin/$1"
+    },
+    {
+      "src": "/admin",
+      "dest": "/admin/index.html"
+    },
+    {
+      "src": "/web/(.*)",
+      "dest": "/web_app/$1"
+    },
+    {
+      "src": "/web",
+      "dest": "/web_app/index.html"
+    },
+    {
+      "src": "/",
+      "dest": "/web_app/index.html"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+services:
+  # SoundVault Backend Audio Streaming & API Engine
+  - type: web
+    name: soundvault-music-engine
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+    autoDeploy: true

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SoundVault 2077 | Ad-Free Music App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+
+  <!-- Main Mobile App Frame -->
+  <div class="app-container">
+
+    <!-- Top Header -->
+    <header class="app-header">
+      <div>
+        <h1 class="brand-title">SoundVault</h1>
+        <span class="badge-adfree"><i class="fa-solid fa-shield-halved"></i> 100% Ad-Free Audio</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <button onclick="openCarMode()" title="Spotify-style Car Mode" style="background: rgba(0, 242, 254, 0.15); border: 1px solid rgba(0, 242, 254, 0.3); color: var(--accent-cyan); width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; cursor: pointer;">
+          <i class="fa-solid fa-car"></i>
+        </button>
+        <div class="avatar-ring" onclick="switchTab('profile')">
+          <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80" alt="Avatar" class="avatar-img">
+        </div>
+      </div>
+    </header>
+
+    <!-- 1. HOME SCREEN -->
+    <div id="screen-home" class="screen active">
+      <!-- Search -->
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass" style="color: var(--accent-cyan);"></i>
+        <input type="text" id="searchInput" class="search-input" placeholder="Search songs, artists, genres..." oninput="onSearch(this.value)">
+      </div>
+
+      <!-- Featured Carousel -->
+      <div class="section-header" style="margin-top: 0.5rem;">
+        <h3>Featured & Trending</h3>
+      </div>
+      <div class="featured-scroll" id="featuredCarousel">
+        <!-- Rendered by JS -->
+      </div>
+
+      <!-- Category Filter Pills -->
+      <div class="category-scroll" id="categoryPills">
+        <!-- Rendered by JS -->
+      </div>
+
+      <!-- Song List Section -->
+      <div class="section-header">
+        <h3 id="songSectionTitle">Recently Added by Admin</h3>
+        <span id="songCountText" style="font-size: 0.75rem; color: var(--text-muted);">0 tracks</span>
+      </div>
+      <div class="songs-list" id="homeSongList">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- 2. LIBRARY SCREEN -->
+    <div id="screen-library" class="screen" style="display: none; padding: 1rem 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <h2 style="font-size: 1.3rem; font-weight: 800;">Your Library</h2>
+        <button onclick="promptCreatePlaylist()" style="background: none; border: none; color: var(--accent-cyan); font-size: 1.35rem; cursor: pointer;">
+          <i class="fa-solid fa-square-plus"></i>
+        </button>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+        <button class="category-pill active" onclick="showLibraryTab('playlists', this)">Playlists</button>
+        <button class="category-pill" onclick="showLibraryTab('history', this)">History</button>
+        <button class="category-pill" onclick="showLibraryTab('offline', this)">Downloads</button>
+      </div>
+
+      <div id="libraryContent">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- 3. FAVORITE SCREEN -->
+    <div id="screen-favorites" class="screen" style="display: none; padding: 1rem 1.25rem;">
+      <div style="background: linear-gradient(135deg, #3b1e48 0%, #192038 100%); border-radius: 18px; padding: 1.25rem; border: 1px solid rgba(248, 87, 166, 0.3); margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+          <div style="width: 46px; height: 46px; border-radius: 50%; background: rgba(248, 87, 166, 0.2); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: var(--accent-pink);">
+            <i class="fa-solid fa-heart"></i>
+          </div>
+          <div>
+            <h2 style="font-size: 1.2rem; font-weight: 800;">Liked Songs</h2>
+            <p id="favCountText" style="font-size: 0.8rem; color: var(--text-secondary);">0 ad-free tracks</p>
+          </div>
+        </div>
+        <button onclick="shufflePlayFavorites()" style="width: 100%; padding: 0.75rem; background: var(--accent-pink); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+          <i class="fa-solid fa-shuffle"></i> Shuffle Play All Favorites
+        </button>
+      </div>
+
+      <div class="songs-list" id="favSongList">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- 4. PROFILE SCREEN -->
+    <div id="screen-profile" class="screen" style="display: none; padding: 1rem 1.25rem;">
+      <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 18px; padding: 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 1rem;">
+        <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400" style="width: 60px; height: 60px; border-radius: 50%; border: 2px solid var(--accent-cyan); object-fit: cover;">
+        <div>
+          <h3 style="font-size: 1.1rem; font-weight: 700;">Alex Rivera</h3>
+          <p style="font-size: 0.8rem; color: var(--text-secondary);">alex.music@example.com</p>
+          <span class="badge-adfree" style="margin-top: 0.3rem;"><i class="fa-solid fa-shield"></i> AD-FREE PASS</span>
+        </div>
+      </div>
+
+      <!-- Stats Grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem;">
+          <i class="fa-solid fa-stopwatch" style="color: var(--accent-cyan); margin-bottom: 0.4rem;"></i>
+          <h4 id="profileHours" style="font-size: 1.25rem;">142.5 hrs</h4>
+          <p style="font-size: 0.75rem; color: var(--text-secondary);">Listened Time</p>
+        </div>
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem;">
+          <i class="fa-solid fa-headphones" style="color: var(--accent-pink); margin-bottom: 0.4rem;"></i>
+          <h4 id="profilePlayed" style="font-size: 1.25rem;">684</h4>
+          <p style="font-size: 0.75rem; color: var(--text-secondary);">Tracks Played</p>
+        </div>
+      </div>
+
+      <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--text-secondary);">Audio Preferences</h4>
+
+      <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-weight: 600; font-size: 0.9rem;">Audio Quality</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">High Fidelity Opus 320kbps</div>
+        </div>
+        <i class="fa-solid fa-circle-check" style="color: var(--accent-cyan);"></i>
+      </div>
+
+      <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-weight: 600; font-size: 0.9rem;">Car Mode Auto-Detect</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">Launch driving view when Bluetooth connects</div>
+        </div>
+        <i class="fa-solid fa-car" style="color: var(--accent-cyan);"></i>
+      </div>
+
+      <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-weight: 600; font-size: 0.9rem;">Offline Audio Cache</div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">24.8 MB cached (zero ads)</div>
+        </div>
+        <button onclick="alert('Cache cleared!')" style="background: none; border: none; color: var(--accent-cyan); font-size: 0.8rem; cursor: pointer;">Clear</button>
+      </div>
+    </div>
+
+    <!-- Floating Persistent Mini-Player -->
+    <div id="miniPlayer" class="mini-player" onclick="openFullPlayer()" style="display: none;">
+      <div id="miniProgress" class="mini-progress"></div>
+      <img id="miniThumb" src="" alt="" class="mini-thumb">
+      <div style="flex: 1; min-width: 0;">
+        <div id="miniTitle" style="font-size: 0.85rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Song Title</div>
+        <div id="miniArtist" style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Artist</div>
+      </div>
+      <button onclick="event.stopPropagation(); togglePlayPause();" style="background: none; border: none; color: var(--accent-cyan); font-size: 1.5rem; cursor: pointer;">
+        <i id="miniPlayIcon" class="fa-solid fa-play"></i>
+      </button>
+      <button onclick="event.stopPropagation(); playNext();" style="background: none; border: none; color: var(--text-primary); font-size: 1.25rem; cursor: pointer;">
+        <i class="fa-solid fa-forward-step"></i>
+      </button>
+    </div>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" onclick="switchTab('home', this)">
+        <i class="fa-solid fa-house"></i>
+        <span>Home</span>
+      </button>
+      <button class="nav-item" onclick="switchTab('library', this)">
+        <i class="fa-solid fa-layer-group"></i>
+        <span>Library</span>
+      </button>
+      <button class="nav-item" onclick="switchTab('favorites', this)">
+        <i class="fa-solid fa-heart"></i>
+        <span>Favorites</span>
+      </button>
+      <button class="nav-item" onclick="switchTab('profile', this)">
+        <i class="fa-solid fa-user"></i>
+        <span>Profile</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- SPOTIFY-STYLE CAR MODE OVERLAY (Kept accessible via top app bar when outside player) -->
+  <div id="carModeOverlay" class="car-mode-overlay">
+    <div class="car-header">
+      <button onclick="closeCarMode()" class="car-exit-btn">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <div class="car-badge">
+        <i class="fa-solid fa-car-side"></i> CAR MODE ACTIVE
+      </div>
+      <button onclick="alert('Voice search active: Say a song or genre!')" class="car-mic-btn">
+        <i class="fa-solid fa-microphone"></i>
+      </button>
+    </div>
+
+    <!-- Large Artwork -->
+    <div class="car-artwork-wrapper">
+      <img id="carArtwork" src="" alt="Album" class="car-artwork-img">
+    </div>
+
+    <!-- Giant Track Info -->
+    <div class="car-track-info">
+      <h2 id="carTitle">Song Title</h2>
+      <p id="carArtist">Artist</p>
+    </div>
+
+    <!-- Giant Touch Controls -->
+    <div class="car-controls">
+      <button onclick="toggleCurrentFavorite()" class="car-sub-btn" id="carLikeBtn">
+        <i class="fa-regular fa-heart"></i>
+      </button>
+      <button onclick="playPrev()" class="car-step-btn">
+        <i class="fa-solid fa-backward-step"></i>
+      </button>
+      <button onclick="togglePlayPause()" class="car-main-play-btn">
+        <i id="carPlayIcon" class="fa-solid fa-play"></i>
+      </button>
+      <button onclick="playNext()" class="car-step-btn">
+        <i class="fa-solid fa-forward-step"></i>
+      </button>
+      <button onclick="toggleShuffle()" class="car-sub-btn" id="carShuffleBtn">
+        <i class="fa-solid fa-shuffle"></i>
+      </button>
+    </div>
+
+    <!-- 1-Tap Driving Presets -->
+    <div class="car-presets">
+      <button onclick="playPreset('Electronic')" class="car-preset-pill">⚡ Highway Synth</button>
+      <button onclick="playPreset('Lo-Fi')" class="car-preset-pill">🌙 Night Chill</button>
+      <button onclick="shufflePlayFavorites()" class="car-preset-pill">❤️ Liked Shuffle</button>
+    </div>
+  </div>
+
+  <!-- Full-Screen Modal Player with Clean Aesthetic (No Volume Bar, No Car Button on Player) -->
+  <div id="fullPlayerModal" class="full-player-modal">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <button onclick="closeFullPlayer()" style="background: none; border: none; color: #fff; font-size: 1.4rem; cursor: pointer;">
+        <i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <div style="text-align: center;">
+        <div style="font-size: 0.65rem; color: var(--success); font-weight: 800; letter-spacing: 1px;">PLAYING AD-FREE AUDIO</div>
+        <div id="fullCategory" style="font-size: 0.75rem; color: var(--text-secondary);">Lo-Fi & Chill</div>
+      </div>
+      <div style="display: flex; gap: 0.75rem;">
+        <button onclick="alert('Queue has ' + currentQueue.length + ' tracks')" style="background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer;">
+          <i class="fa-solid fa-list"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Rotating Vinyl Disc -->
+    <div class="vinyl-disc-container">
+      <div id="vinylDisc" class="vinyl-disc">
+        <img id="fullArtwork" src="" alt="Album Art" class="vinyl-artwork">
+        <div class="vinyl-center-pin"></div>
+      </div>
+    </div>
+
+    <!-- Track Title, Artist & Like -->
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div style="flex: 1; min-width: 0; padding-right: 1rem;">
+        <h2 id="fullTitle" style="font-size: 1.3rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Title</h2>
+        <p id="fullArtist" style="color: var(--accent-cyan); font-size: 0.9rem; margin-top: 2px;">Artist</p>
+      </div>
+      <button id="fullLikeBtn" onclick="toggleCurrentFavorite()" style="background: none; border: none; font-size: 1.6rem; color: var(--text-muted); cursor: pointer;">
+        <i class="fa-regular fa-heart"></i>
+      </button>
+    </div>
+
+    <!-- Progress / Seek Bar -->
+    <div style="margin-top: 1.2rem;">
+      <div class="progress-bar-track" onclick="seekAudioBar(event)" style="width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; position: relative;">
+        <div id="fullProgressFill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-pink)); border-radius: 3px; transition: width 0.15s linear;"></div>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-top: 6px;">
+        <span id="fullCurrentTime" style="font-size: 0.75rem; color: var(--text-secondary);">0:00</span>
+        <span id="fullTotalTime" style="font-size: 0.75rem; color: var(--text-secondary);">0:00</span>
+      </div>
+    </div>
+
+    <!-- Player Controls -->
+    <div class="player-controls" style="margin-top: 1.5rem;">
+      <button onclick="toggleShuffle()" id="shuffleBtn" style="background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer;">
+        <i class="fa-solid fa-shuffle"></i>
+      </button>
+      <button onclick="playPrev()" style="background: none; border: none; color: #fff; font-size: 1.75rem; cursor: pointer;">
+        <i class="fa-solid fa-backward-step"></i>
+      </button>
+      <button onclick="togglePlayPause()" class="play-main-btn">
+        <i id="fullPlayIcon" class="fa-solid fa-play"></i>
+      </button>
+      <button onclick="playNext()" style="background: none; border: none; color: #fff; font-size: 1.75rem; cursor: pointer;">
+        <i class="fa-solid fa-forward-step"></i>
+      </button>
+      <button onclick="toggleRepeat()" id="repeatBtn" style="background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer;">
+        <i class="fa-solid fa-repeat"></i>
+      </button>
+    </div>
+  </div>
+
+  <audio id="coreAudioPlayer" preload="none"></audio>
+  <script src="app.js"></script>
+</body>
+</html>

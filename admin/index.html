@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundVault 2077 | Music Admin Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header class="header">
+    <div class="brand">
+      <div class="logo-icon">
+        <i class="fa-solid fa-bolt-lightning"></i>
+      </div>
+      <div>
+        <h1>SoundVault Admin</h1>
+        <span class="badge-adfree"><i class="fa-solid fa-shield-halved"></i> 100% Ad-Free Audio Engine</span>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <a href="/web" target="_blank" class="btn btn-secondary">
+        <i class="fa-solid fa-mobile-screen"></i> Launch Web App
+      </a>
+      <button id="refreshBtn" class="btn btn-secondary" onclick="loadCatalog(); loadStats();">
+        <i class="fa-solid fa-rotate"></i> Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Layout -->
+  <main class="main-content">
+
+    <!-- Top Statistics Overview -->
+    <section class="stats-grid">
+      <div class="glass-card stat-card">
+        <div class="stat-icon" style="color: var(--accent-cyan);">
+          <i class="fa-solid fa-music"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="statTotalSongs">0</h3>
+          <p>Total Tracks in Catalog</p>
+        </div>
+      </div>
+
+      <div class="glass-card stat-card">
+        <div class="stat-icon" style="color: var(--accent-pink);">
+          <i class="fa-solid fa-play"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="statTotalPlays">0</h3>
+          <p>Ad-Free Streams Played</p>
+        </div>
+      </div>
+
+      <div class="glass-card stat-card">
+        <div class="stat-icon" style="color: var(--accent-purple);">
+          <i class="fa-solid fa-layer-group"></i>
+        </div>
+        <div class="stat-info">
+          <h3 id="statCategories">8</h3>
+          <p>Active Genres & Moods</p>
+        </div>
+      </div>
+
+      <div class="glass-card stat-card">
+        <div class="stat-icon" style="color: var(--success);">
+          <i class="fa-solid fa-shield-virus"></i>
+        </div>
+        <div class="stat-info">
+          <h3 style="color: var(--success);">100% Zero</h3>
+          <p>Video/Audio Ads Blocked</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Upload Link & Live Artwork Preview Section -->
+    <section class="upload-grid">
+      
+      <!-- Upload Link Form -->
+      <div class="glass" style="padding: 2rem;">
+        <h2 class="section-title">
+          <i class="fa-solid fa-cloud-arrow-up" style="color: var(--accent-cyan);"></i>
+          Upload Music Link
+        </h2>
+        <p style="color: var(--text-secondary); margin-bottom: 1.5rem; font-size: 0.9rem;">
+          Paste any YouTube music video link or direct audio URL. The system will automatically resolve the high-res music photo, title, artist, and ad-free audio stream.
+        </p>
+
+        <form id="uploadForm" onsubmit="event.preventDefault(); publishTrack();">
+          
+          <div class="form-group">
+            <label class="form-label" for="musicUrl">
+              <i class="fa-brands fa-youtube" style="color: #ff0000;"></i> YouTube / Audio Stream Link *
+            </label>
+            <div class="link-input-group">
+              <input 
+                type="text" 
+                id="musicUrl" 
+                class="input-field" 
+                placeholder="https://www.youtube.com/watch?v=... or youtu.be/..." 
+                required
+                autocomplete="off"
+              >
+              <button type="button" class="btn btn-secondary" onclick="extractLinkInfo()">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Fetch
+              </button>
+            </div>
+
+            <!-- Quick Samples -->
+            <div class="quick-samples">
+              <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Quick Try:</span>
+              <div class="sample-chip" onclick="setSample('https://www.youtube.com/watch?v=jfKfPfyJRdk')">🎧 Lofi Girl</div>
+              <div class="sample-chip" onclick="setSample('https://www.youtube.com/watch?v=4xDzrJKXOOY')">⚡ Synthwave 80s</div>
+              <div class="sample-chip" onclick="setSample('https://www.youtube.com/watch?v=kJQP7kiw5Fk')">☀️ Pop Vibes</div>
+              <div class="sample-chip" onclick="setSample('https://www.youtube.com/watch?v=36YnV9STBqc')">🎸 Acoustic Chill</div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label" for="songTitle">Song Title *</label>
+              <input type="text" id="songTitle" class="input-field" placeholder="Song title" required>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="artistName">Artist / Channel *</label>
+              <input type="text" id="artistName" class="input-field" placeholder="Artist name" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label" for="categorySelect">Genre / Category</label>
+              <select id="categorySelect" class="input-field">
+                <option value="Lo-Fi & Chill">Lo-Fi & Chill</option>
+                <option value="Pop & Hits">Pop & Hits</option>
+                <option value="Electronic & Dance">Electronic & Dance</option>
+                <option value="Hip-Hop & Rap">Hip-Hop & Rap</option>
+                <option value="Acoustic & Indie">Acoustic & Indie</option>
+                <option value="Rock & Metal">Rock & Metal</option>
+                <option value="Focus & Study">Focus & Study</option>
+                <option value="Trending">Trending</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="albumName">Album / Collection</label>
+              <input type="text" id="albumName" class="input-field" placeholder="Single / Album Name">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="customArtwork">
+              Cover Artwork Photo URL (Auto-detected from YouTube link)
+            </label>
+            <input type="url" id="customArtwork" class="input-field" placeholder="https://..." oninput="updatePreviewArtwork(this.value)">
+          </div>
+
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; margin-top: 1rem;">
+            <input type="checkbox" id="isFeatured" style="width: 18px; height: 18px; accent-color: var(--accent-cyan);" checked>
+            <label for="isFeatured" style="font-size: 0.9rem; cursor: pointer;">
+              Feature on Home Screen Banner & Carousel
+            </label>
+          </div>
+
+          <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%; margin-top: 1rem; justify-content: center; padding: 0.9rem;">
+            <i class="fa-solid fa-circle-check"></i> Publish Ad-Free Track to App
+          </button>
+        </form>
+      </div>
+
+      <!-- Live Music Photo & Audio Preview Panel -->
+      <div class="glass preview-panel">
+        <h3 style="font-size: 1.1rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+          <i class="fa-solid fa-eye"></i> Live Music Photo & Player Preview
+        </h3>
+
+        <div class="artwork-container">
+          <img 
+            id="previewImg" 
+            src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80" 
+            alt="Track Cover Artwork" 
+            class="artwork-img"
+          >
+          <div id="previewBadge" class="artwork-badge">
+            <i class="fa-solid fa-music"></i> <span id="previewCategory">Lo-Fi & Chill</span>
+          </div>
+        </div>
+
+        <h4 id="previewTitle" class="preview-title">Starry Night Chill</h4>
+        <p id="previewArtist" class="preview-artist">Lofi Girl Beats</p>
+
+        <div class="preview-meta">
+          <span><i class="fa-regular fa-clock"></i> <span id="previewDuration">3:04</span></span>
+          <span><i class="fa-solid fa-volume-high"></i> High Quality 320kbps</span>
+          <span><i class="fa-solid fa-ban" style="color: var(--success);"></i> No Ads</span>
+        </div>
+
+        <!-- In-Dashboard Audio Test Player -->
+        <div class="audio-preview-bar">
+          <button type="button" id="previewPlayBtn" class="play-toggle-btn" onclick="toggleTestAudio()">
+            <i id="previewPlayIcon" class="fa-solid fa-play"></i>
+          </button>
+          <div style="flex: 1; text-align: left;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+              <span id="audioCurrentTime">0:00</span>
+              <span id="audioTotalTime">3:04</span>
+            </div>
+            <div class="wave-progress" onclick="seekAudio(event)">
+              <div id="audioProgressFill" class="wave-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+        <audio id="globalAudioPlayer" preload="none"></audio>
+      </div>
+
+    </section>
+
+    <!-- Music Catalog Management Table -->
+    <section class="glass catalog-section">
+      <div class="catalog-header">
+        <div>
+          <h2 class="section-title" style="margin-bottom: 0.25rem;">
+            <i class="fa-solid fa-list-check" style="color: var(--accent-pink);"></i>
+            Uploaded Music Catalog
+          </h2>
+          <p style="color: var(--text-secondary); font-size: 0.85rem;">
+            Manage all active tracks streamed directly to your Dart mobile and web app.
+          </p>
+        </div>
+
+        <div class="search-bar">
+          <input 
+            type="text" 
+            id="searchCatalogInput" 
+            class="input-field" 
+            placeholder="Search tracks, artists, genres..." 
+            oninput="filterCatalog(this.value)"
+          >
+        </div>
+      </div>
+
+      <div class="tracks-table-wrapper">
+        <table class="tracks-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Track & Music Photo</th>
+              <th>Genre</th>
+              <th>Duration</th>
+              <th>Total Plays</th>
+              <th>Ad Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="catalogTableBody">
+            <!-- Dynamic Song Rows -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
