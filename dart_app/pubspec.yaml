@@ -21,6 +21,9 @@ dependencies:
   just_audio: ^0.9.36
   audio_service: ^0.18.12
   
+  # File System & Offline Downloads
+  path_provider: ^2.1.2
+  
   # UI, Icons, Typography & Cached Images
   google_fonts: ^6.1.0
   cached_network_image: ^3.3.1
@@ -36,5 +39,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/images/
