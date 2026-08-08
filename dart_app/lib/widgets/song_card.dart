@@ -18,8 +18,8 @@ class SongCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final audioProvider = Provider.read<AudioProvider>(context, listen: true);
-    final musicProvider = Provider.read<MusicProvider>(context, listen: false);
+    final audioProvider = Provider.of<AudioProvider>(context, listen: true);
+    final musicProvider = Provider.of<MusicProvider>(context, listen: false);
     final isCurrentSong = audioProvider.currentSong?.id == song.id;
     final isPlaying = isCurrentSong && audioProvider.isPlaying;
 
