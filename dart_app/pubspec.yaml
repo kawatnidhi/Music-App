@@ -15,11 +15,10 @@ dependencies:
   provider: ^6.1.1
   
   # Networking & HTTP
-  http: ^1.1.2
+  http: ^1.2.0
   
-  # Audio Playback Engine & Background Service
+  # Audio Playback Engine
   just_audio: ^0.9.36
-  audio_service: ^0.18.12
   
   # File System & Offline Downloads
   path_provider: ^2.1.2

@@ -3,7 +3,7 @@ name: 📱 Build & Release SoundVault Android APK
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build-apk:
@@ -20,24 +20,30 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🐦 Setup Flutter 3.22.x
+      - name: 🐦 Setup Flutter Stable
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
           channel: 'stable'
           cache: true
 
-      - name: 🛠️ Initialize Android Project Structure
+      - name: 🛠️ Clean & Generate Native Android Platform Files
         working-directory: dart_app
         run: |
-          flutter create . --org com.soundvault --platforms android
-          flutter pub get
+          rm -rf android
+          flutter create . --org com.soundvault --platforms android --project-name ad_free_music_app
+          
+          # Inject Streaming and Network Permissions into AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />' android/app/src/main/AndroidManifest.xml
 
-      - name: 🚀 Build Release APK
+      - name: 📦 Install Flutter Dependencies
+        working-directory: dart_app
+        run: flutter pub get
+
+      - name: 🚀 Compile Release APK
         working-directory: dart_app
         run: flutter build apk --release --no-tree-shake-icons
 
-      - name: 📤 Upload Release APK as Artifact
+      - name: 📤 Upload Release APK as Downloadable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SoundVault-Music-App-Release
