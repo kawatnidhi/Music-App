@@ -1,12 +1,12 @@
 const { exec } = require('child_process');
 const axios = require('axios');
+const ytdl = require('@distube/ytdl-core');
 
 // In-memory cache of resolved audio stream URLs (videoId -> { url, expiresAt })
 const streamCache = new Map();
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (Google CDN URLs expire in ~6h)
 
-// Detect platform-appropriate yt-dlp command
-// On Windows: `python -m yt_dlp` works. On Linux Docker: use `yt-dlp` binary directly.
+// Detect platform-appropriate yt-dlp command (fallback only)
 const IS_WINDOWS = process.platform === 'win32';
 const YT_DLP_CMD = IS_WINDOWS ? 'python -m yt_dlp' : 'yt-dlp';
 
@@ -36,7 +36,7 @@ class YouTubeService {
   }
 
   /**
-   * Fetches metadata & high-res artwork using oEmbed + yt-dlp for duration
+   * Fetches metadata & high-res artwork using oEmbed + ytdl-core for duration
    */
   static async extractMetadata(rawUrl) {
     const videoId = this.extractVideoId(rawUrl);
@@ -63,16 +63,23 @@ class YouTubeService {
         console.warn(`oEmbed notice for ${videoId}:`, err.message);
       }
 
-      // 2. Get duration via yt-dlp --print duration
+      // 2. Get duration via ytdl-core (pure JS, no external deps)
       try {
-        const dur = await this._execPromise(
-          `${YT_DLP_CMD} --print duration "https://www.youtube.com/watch?v=${videoId}"`,
-          15000
-        );
-        const parsed = parseInt(dur.trim(), 10);
-        if (!isNaN(parsed) && parsed > 0) durationSeconds = parsed;
+        const info = await ytdl.getBasicInfo(youtubeUrl);
+        const dur = parseInt(info.videoDetails.lengthSeconds, 10);
+        if (!isNaN(dur) && dur > 0) durationSeconds = dur;
       } catch (e) {
-        // Duration extraction is optional; use default
+        // Fallback: try yt-dlp for duration
+        try {
+          const dur = await this._execPromise(
+            `${YT_DLP_CMD} --print duration "${youtubeUrl}"`,
+            15000
+          );
+          const parsed = parseInt(dur.trim(), 10);
+          if (!isNaN(parsed) && parsed > 0) durationSeconds = parsed;
+        } catch (e2) {
+          // Duration extraction is optional; use default
+        }
       }
 
       const mins = Math.floor(durationSeconds / 60);
@@ -115,34 +122,63 @@ class YouTubeService {
   }
 
   /**
-   * Uses yt-dlp to extract the real, direct, unthrottled, ad-free audio stream URL.
-   * Returns a raw Google CDN URL like https://rr1---sn-xxx.googlevideo.com/videoplayback?...
-   * This URL is meant to be PROXIED through our backend, not sent to the browser directly.
+   * Extracts the real, direct, ad-free audio stream URL.
+   * PRIMARY: Uses @distube/ytdl-core (pure JavaScript, works everywhere)
+   * FALLBACK: Uses yt-dlp CLI (requires Python + yt-dlp installed)
    */
   static async getDirectAudioStreamUrl(videoId) {
     // Check cache first
     const cached = streamCache.get(videoId);
     if (cached && Date.now() < cached.expiresAt) {
+      console.log(`[CACHE HIT] Using cached stream URL for ${videoId}`);
       return cached.url;
     }
 
-    try {
-      const stdout = await this._execPromise(
-        `${YT_DLP_CMD} -g -f bestaudio "https://www.youtube.com/watch?v=${videoId}"`,
-        30000
-      );
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-      if (stdout && stdout.trim().startsWith('http')) {
-        const url = stdout.trim().split('\n')[0].trim();
+    // ===== PRIMARY: @distube/ytdl-core (pure JS, no external deps) =====
+    try {
+      console.log(`[ytdl-core] Extracting audio stream for ${videoId}...`);
+      const info = await ytdl.getInfo(youtubeUrl);
+      
+      // Get best audio-only format
+      const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+      
+      if (audioFormats.length > 0) {
+        // Sort by audio bitrate (highest first)
+        audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
+        const bestAudio = audioFormats[0];
+        const url = bestAudio.url;
+        
+        console.log(`[ytdl-core] SUCCESS: Got ${bestAudio.mimeType} @ ${bestAudio.audioBitrate}kbps for ${videoId}`);
+        
         // Cache it
         streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
         return url;
       }
     } catch (err) {
-      console.error(`yt-dlp stream extraction FAILED for ${videoId}:`, err.message);
-      console.error(`Command used: ${YT_DLP_CMD} -g -f bestaudio (platform: ${process.platform})`);
+      console.warn(`[ytdl-core] Failed for ${videoId}: ${err.message}`);
     }
 
+    // ===== FALLBACK: yt-dlp CLI =====
+    try {
+      console.log(`[yt-dlp] Falling back to CLI extraction for ${videoId}...`);
+      const stdout = await this._execPromise(
+        `${YT_DLP_CMD} -g -f bestaudio "${youtubeUrl}"`,
+        30000
+      );
+
+      if (stdout && stdout.trim().startsWith('http')) {
+        const url = stdout.trim().split('\n')[0].trim();
+        console.log(`[yt-dlp] SUCCESS: Got stream URL for ${videoId}`);
+        streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
+        return url;
+      }
+    } catch (err) {
+      console.error(`[yt-dlp] FAILED for ${videoId}:`, err.message);
+    }
+
+    console.error(`CRITICAL: All extraction methods failed for videoId=${videoId}`);
     return null;
   }
 
@@ -154,7 +190,7 @@ class YouTubeService {
     const directUrl = await this.getDirectAudioStreamUrl(videoId);
 
     if (!directUrl) {
-      console.error(`CRITICAL: No audio stream URL resolved for videoId=${videoId}. yt-dlp may not be installed or YouTube blocked the request.`);
+      console.error(`CRITICAL: No audio stream URL resolved for videoId=${videoId}.`);
       return res.redirect(this.getFallbackAudio());
     }
 
