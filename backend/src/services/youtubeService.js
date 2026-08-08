@@ -5,6 +5,11 @@ const axios = require('axios');
 const streamCache = new Map();
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours (Google CDN URLs expire in ~6h)
 
+// Detect platform-appropriate yt-dlp command
+// On Windows: `python -m yt_dlp` works. On Linux Docker: use `yt-dlp` binary directly.
+const IS_WINDOWS = process.platform === 'win32';
+const YT_DLP_CMD = IS_WINDOWS ? 'python -m yt_dlp' : 'yt-dlp';
+
 class YouTubeService {
   /**
    * Extracts clean video ID from any YouTube URL variation
@@ -61,8 +66,8 @@ class YouTubeService {
       // 2. Get duration via yt-dlp --print duration
       try {
         const dur = await this._execPromise(
-          `python -m yt_dlp --print duration "https://www.youtube.com/watch?v=${videoId}"`,
-          8000
+          `${YT_DLP_CMD} --print duration "https://www.youtube.com/watch?v=${videoId}"`,
+          15000
         );
         const parsed = parseInt(dur.trim(), 10);
         if (!isNaN(parsed) && parsed > 0) durationSeconds = parsed;
@@ -123,8 +128,8 @@ class YouTubeService {
 
     try {
       const stdout = await this._execPromise(
-        `python -m yt_dlp -g -f bestaudio "https://www.youtube.com/watch?v=${videoId}"`,
-        15000
+        `${YT_DLP_CMD} -g -f bestaudio "https://www.youtube.com/watch?v=${videoId}"`,
+        30000
       );
 
       if (stdout && stdout.trim().startsWith('http')) {
@@ -134,7 +139,8 @@ class YouTubeService {
         return url;
       }
     } catch (err) {
-      console.warn(`yt-dlp stream extraction notice for ${videoId}:`, err.message);
+      console.error(`yt-dlp stream extraction FAILED for ${videoId}:`, err.message);
+      console.error(`Command used: ${YT_DLP_CMD} -g -f bestaudio (platform: ${process.platform})`);
     }
 
     return null;
@@ -148,7 +154,7 @@ class YouTubeService {
     const directUrl = await this.getDirectAudioStreamUrl(videoId);
 
     if (!directUrl) {
-      // Fallback: serve a known working audio file via redirect
+      console.error(`CRITICAL: No audio stream URL resolved for videoId=${videoId}. yt-dlp may not be installed or YouTube blocked the request.`);
       return res.redirect(this.getFallbackAudio());
     }
 

@@ -11,8 +11,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp globally via pip
+# Install yt-dlp globally via pip (creates /usr/local/bin/yt-dlp binary)
 RUN pip3 install --no-cache-dir yt-dlp
+
+# Create python symlink for cross-platform compatibility
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Verify yt-dlp is on PATH and accessible
+RUN which yt-dlp && yt-dlp --version && echo "yt-dlp is ready"
 
 # Set working directory
 WORKDIR /app
