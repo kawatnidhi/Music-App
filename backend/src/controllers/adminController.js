@@ -85,6 +85,11 @@ class AdminController {
         isFeatured: Boolean(isFeatured)
       });
 
+      // Pre-warm audio stream cache so first play is instant
+      if (videoId) {
+        YouTubeService.prewarmCache(videoId).catch(() => {});
+      }
+
       return res.status(201).json({
         success: true,
         message: 'Track published successfully to music app',

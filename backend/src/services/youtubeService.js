@@ -63,27 +63,20 @@ class YouTubeService {
         console.warn(`oEmbed notice for ${videoId}:`, err.message);
       }
 
-      // 2. Get duration via ytdl-core (pure JS, no external deps)
+      // 2. Get duration via ytdl-core (pure JS)
       try {
         const info = await ytdl.getBasicInfo(youtubeUrl);
         const dur = parseInt(info.videoDetails.lengthSeconds, 10);
         if (!isNaN(dur) && dur > 0) durationSeconds = dur;
       } catch (e) {
-        // Fallback: try yt-dlp for duration
-        try {
-          const dur = await this._execPromise(
-            `${YT_DLP_CMD} --print duration "${youtubeUrl}"`,
-            15000
-          );
-          const parsed = parseInt(dur.trim(), 10);
-          if (!isNaN(parsed) && parsed > 0) durationSeconds = parsed;
-        } catch (e2) {
-          // Duration extraction is optional; use default
-        }
+        // Duration extraction is optional; use default
       }
 
       const mins = Math.floor(durationSeconds / 60);
       const secs = durationSeconds % 60;
+
+      // Pre-warm the stream cache so first play is instant
+      this.getDirectAudioStreamUrl(videoId).catch(() => {});
 
       return {
         success: true,
@@ -97,7 +90,6 @@ class YouTubeService {
         thumbnail: maxResThumbnail,
         fallbackThumbnail: hqThumbnail,
         lowResThumbnail: mqThumbnail,
-        // The stream URL always points to our proxy endpoint  
         streamUrl: `/api/songs/stream/${videoId}`
       };
     } else {
@@ -130,7 +122,6 @@ class YouTubeService {
     // Check cache first
     const cached = streamCache.get(videoId);
     if (cached && Date.now() < cached.expiresAt) {
-      console.log(`[CACHE HIT] Using cached stream URL for ${videoId}`);
       return cached.url;
     }
 
@@ -138,21 +129,13 @@ class YouTubeService {
 
     // ===== PRIMARY: @distube/ytdl-core (pure JS, no external deps) =====
     try {
-      console.log(`[ytdl-core] Extracting audio stream for ${videoId}...`);
       const info = await ytdl.getInfo(youtubeUrl);
-      
-      // Get best audio-only format
       const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
       
       if (audioFormats.length > 0) {
-        // Sort by audio bitrate (highest first)
         audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
         const bestAudio = audioFormats[0];
         const url = bestAudio.url;
-        
-        console.log(`[ytdl-core] SUCCESS: Got ${bestAudio.mimeType} @ ${bestAudio.audioBitrate}kbps for ${videoId}`);
-        
-        // Cache it
         streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
         return url;
       }
@@ -162,15 +145,12 @@ class YouTubeService {
 
     // ===== FALLBACK: yt-dlp CLI =====
     try {
-      console.log(`[yt-dlp] Falling back to CLI extraction for ${videoId}...`);
       const stdout = await this._execPromise(
         `${YT_DLP_CMD} -g -f bestaudio "${youtubeUrl}"`,
         30000
       );
-
       if (stdout && stdout.trim().startsWith('http')) {
         const url = stdout.trim().split('\n')[0].trim();
-        console.log(`[yt-dlp] SUCCESS: Got stream URL for ${videoId}`);
         streamCache.set(videoId, { url, expiresAt: Date.now() + CACHE_TTL_MS });
         return url;
       }
@@ -178,64 +158,88 @@ class YouTubeService {
       console.error(`[yt-dlp] FAILED for ${videoId}:`, err.message);
     }
 
-    console.error(`CRITICAL: All extraction methods failed for videoId=${videoId}`);
     return null;
   }
 
   /**
-   * Pipes audio from YouTube CDN through our server to the client.
-   * This avoids CORS issues since the client only talks to our origin.
+   * Streams audio directly using ytdl-core pipe (fastest method).
+   * Falls back to URL proxy if direct pipe fails.
    */
   static async proxyAudioStream(videoId, req, res) {
-    const directUrl = await this.getDirectAudioStreamUrl(videoId);
+    // Try cached URL first (instant playback)
+    const cachedUrl = await this.getDirectAudioStreamUrl(videoId);
 
-    if (!directUrl) {
-      console.error(`CRITICAL: No audio stream URL resolved for videoId=${videoId}.`);
-      return res.redirect(this.getFallbackAudio());
+    if (cachedUrl) {
+      try {
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        };
+        if (req.headers.range) {
+          headers['Range'] = req.headers.range;
+        }
+
+        const response = await axios({
+          method: 'get',
+          url: cachedUrl,
+          responseType: 'stream',
+          headers,
+          timeout: 15000
+        });
+
+        res.status(response.status);
+        if (response.headers['content-type']) res.set('Content-Type', response.headers['content-type']);
+        if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
+        if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
+        if (response.headers['accept-ranges']) res.set('Accept-Ranges', response.headers['accept-ranges']);
+        res.set('Cache-Control', 'public, max-age=3600');
+
+        response.data.pipe(res);
+
+        response.data.on('error', (err) => {
+          console.warn('Stream pipe error:', err.message);
+          if (!res.headersSent) res.redirect(this.getFallbackAudio());
+        });
+        return;
+      } catch (proxyErr) {
+        console.warn('Cached URL proxy failed, trying direct pipe:', proxyErr.message);
+        streamCache.delete(videoId);
+      }
     }
 
+    // Direct ytdl-core pipe (no URL resolution needed)
     try {
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      };
-
-      // Forward Range header for seeking support
-      if (req.headers.range) {
-        headers['Range'] = req.headers.range;
-      }
-
-      const response = await axios({
-        method: 'get',
-        url: directUrl,
-        responseType: 'stream',
-        headers,
-        timeout: 15000
+      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const stream = ytdl(youtubeUrl, {
+        filter: 'audioonly',
+        quality: 'highestaudio',
+        highWaterMark: 1 << 25  // 32MB buffer for smooth streaming
       });
 
-      // Forward content headers from Google CDN to the client
-      res.status(response.status); // 200 or 206
-      if (response.headers['content-type']) res.set('Content-Type', response.headers['content-type']);
-      if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
-      if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
-      if (response.headers['accept-ranges']) res.set('Accept-Ranges', response.headers['accept-ranges']);
+      res.set('Content-Type', 'audio/webm');
+      res.set('Transfer-Encoding', 'chunked');
       res.set('Cache-Control', 'public, max-age=3600');
 
-      response.data.pipe(res);
+      stream.pipe(res);
 
-      response.data.on('error', (err) => {
-        console.warn('Stream pipe error:', err.message);
-        if (!res.headersSent) {
-          res.redirect(this.getFallbackAudio());
-        }
+      stream.on('error', (err) => {
+        console.warn('ytdl direct pipe error:', err.message);
+        if (!res.headersSent) res.redirect(this.getFallbackAudio());
       });
-    } catch (proxyErr) {
-      console.warn('Proxy stream error, using fallback:', proxyErr.message);
-      // Invalidate cache on error
-      streamCache.delete(videoId);
+    } catch (err) {
+      console.error('All stream methods failed:', err.message);
+      if (!res.headersSent) res.redirect(this.getFallbackAudio());
+    }
+  }
 
-      if (!res.headersSent) {
-        res.redirect(this.getFallbackAudio());
-      }
+  /**
+   * Pre-warm cache for a videoId (called after publishing a song)
+   */
+  static async prewarmCache(videoId) {
+    try {
+      await this.getDirectAudioStreamUrl(videoId);
+      console.log(`[PREWARM] Cache warmed for ${videoId}`);
+    } catch (e) {
+      console.warn(`[PREWARM] Failed for ${videoId}`);
     }
   }
 

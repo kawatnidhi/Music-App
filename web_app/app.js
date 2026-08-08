@@ -183,7 +183,6 @@ function playSong(songId) {
   currentQueue = [...allSongs];
 
   // ALWAYS use our backend proxy endpoint for YouTube songs.
-  // Never set audio.src to a raw Google CDN URL — it will fail with CORS.
   let streamUrl;
   if (song.videoId) {
     streamUrl = `${API_BASE}/songs/stream/${song.videoId}`;
@@ -193,25 +192,38 @@ function playSong(songId) {
     streamUrl = `${API_BASE}/songs/stream/${song.id}`;
   }
 
+  // Show loading state immediately
+  updateUIPlayer();
+  const playBtn = document.getElementById('playPauseBtn');
+  if (playBtn) playBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
   audio.src = streamUrl;
   audio.load();
-  audio.play().then(() => {
-    isPlaying = true;
-    updateUIPlayer();
-  }).catch(e => {
-    console.warn('Playback notice, retrying via song ID:', e.message);
-    // Retry with song ID as fallback
-    audio.src = `${API_BASE}/songs/stream/${song.id}`;
-    audio.load();
+
+  // Use canplay event — audio starts as soon as enough data is buffered
+  const onCanPlay = () => {
+    audio.removeEventListener('canplay', onCanPlay);
     audio.play().then(() => {
       isPlaying = true;
       updateUIPlayer();
-    }).catch(e2 => {
-      console.error('All playback attempts failed:', e2.message);
-    });
-  });
+    }).catch(() => {});
+  };
+  audio.addEventListener('canplay', onCanPlay);
 
-  updateUIPlayer();
+  // Safety timeout: if canplay doesn't fire in 15s, try with song ID
+  const retryTimeout = setTimeout(() => {
+    audio.removeEventListener('canplay', onCanPlay);
+    if (audio.readyState < 3) {
+      audio.src = `${API_BASE}/songs/stream/${song.id}`;
+      audio.load();
+      audio.play().then(() => {
+        isPlaying = true;
+        updateUIPlayer();
+      }).catch(() => {});
+    }
+  }, 15000);
+
+  audio.addEventListener('playing', () => clearTimeout(retryTimeout), { once: true });
 }
 
 function updateUIPlayer() {
