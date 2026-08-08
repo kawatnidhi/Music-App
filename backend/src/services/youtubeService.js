@@ -1,5 +1,6 @@
 const youtubedl = require('youtube-dl-exec');
 const axios = require('axios');
+const { exec } = require('child_process');
 
 // In-memory cache of resolved audio stream URLs (videoId -> { url, expiresAt })
 const streamCache = new Map();
@@ -58,7 +59,7 @@ class YouTubeService {
         console.warn(`oEmbed notice for ${videoId}:`, err.message);
       }
 
-      // 2. Get duration via youtube-dl-exec with android client
+      // 2. Get duration via youtube-dl-exec
       try {
         const durOutput = await youtubedl(youtubeUrl, {
           print: 'duration',
@@ -74,7 +75,7 @@ class YouTubeService {
       const mins = Math.floor(durationSeconds / 60);
       const secs = durationSeconds % 60;
 
-      // Pre-warm stream cache immediately in the background
+      // Pre-warm stream cache immediately in background
       this.getDirectAudioStreamUrl(videoId).catch(() => {});
 
       return {
@@ -113,8 +114,7 @@ class YouTubeService {
   }
 
   /**
-   * Uses bundled youtube-dl-exec binary with Android player_client payload
-   * to resolve unthrottled Google CDN audio stream URLs on cloud servers.
+   * Resolves Google CDN audio stream URL using multi-tier fallback strategy.
    */
   static async getDirectAudioStreamUrl(videoId, bypassCache = false) {
     if (!bypassCache) {
@@ -126,9 +126,9 @@ class YouTubeService {
 
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    // Try primary Android player client (bypasses cloud IP bot checks)
+    // Tier 1: Bundled youtube-dl-exec with android client
     try {
-      console.log(`[STREAM] Resolving Google CDN audio URL for videoId=${videoId} using android client...`);
+      console.log(`[STREAM] Tier 1: youtube-dl-exec android for ${videoId}...`);
       const output = await youtubedl(youtubeUrl, {
         getUrl: true,
         format: 'bestaudio/best',
@@ -139,16 +139,44 @@ class YouTubeService {
       if (output && typeof output === 'string' && output.trim().startsWith('http')) {
         const streamUrl = output.trim().split('\n')[0].trim();
         streamCache.set(videoId, { url: streamUrl, expiresAt: Date.now() + CACHE_TTL_MS });
-        console.log(`[STREAM] SUCCESS: Resolved audio stream URL for ${videoId}`);
+        console.log(`[STREAM] SUCCESS Tier 1: Resolved audio stream URL for ${videoId}`);
         return streamUrl;
       }
-    } catch (err) {
-      console.warn(`[STREAM] Android client extraction failed for ${videoId}:`, err.message);
+    } catch (err1) {
+      console.warn(`[STREAM] Tier 1 failed for ${videoId}:`, err1.message);
     }
 
-    // Fallback: try plain extraction
+    // Tier 2: System CLI runners (python3 -m yt_dlp, yt-dlp, python -m yt_dlp)
+    const altRunners = [
+      'python3 -m yt_dlp',
+      'python -m yt_dlp',
+      'yt-dlp'
+    ];
+
+    for (const runner of altRunners) {
+      try {
+        console.log(`[STREAM] Tier 2 (${runner}) for ${videoId}...`);
+        const stdout = await this._execPromise(
+          `${runner} -g -f "bestaudio/best" --extractor-args "youtube:player_client=android" "${youtubeUrl}"`,
+          15000
+        );
+        if (stdout && stdout.trim().length > 0) {
+          const lines = stdout.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+          if (lines.length > 0) {
+            const streamUrl = lines[0];
+            streamCache.set(videoId, { url: streamUrl, expiresAt: Date.now() + CACHE_TTL_MS });
+            console.log(`[STREAM] SUCCESS Tier 2 (${runner}): Resolved audio stream URL for ${videoId}`);
+            return streamUrl;
+          }
+        }
+      } catch (err2) {
+        // Continue to next runner
+      }
+    }
+
+    // Tier 3: Standard youtube-dl-exec fallback
     try {
-      console.log(`[STREAM] Falling back to standard extraction for videoId=${videoId}...`);
+      console.log(`[STREAM] Tier 3: standard youtube-dl-exec for ${videoId}...`);
       const output = await youtubedl(youtubeUrl, {
         getUrl: true,
         format: 'bestaudio/best',
@@ -158,11 +186,11 @@ class YouTubeService {
       if (output && typeof output === 'string' && output.trim().startsWith('http')) {
         const streamUrl = output.trim().split('\n')[0].trim();
         streamCache.set(videoId, { url: streamUrl, expiresAt: Date.now() + CACHE_TTL_MS });
-        console.log(`[STREAM] SUCCESS: Resolved fallback stream URL for ${videoId}`);
+        console.log(`[STREAM] SUCCESS Tier 3: Resolved audio stream URL for ${videoId}`);
         return streamUrl;
       }
-    } catch (err2) {
-      console.error(`[STREAM] Standard extraction error for ${videoId}:`, err2.message);
+    } catch (err3) {
+      console.error(`[STREAM] Tier 3 error for ${videoId}:`, err3.message);
     }
 
     return null;
@@ -235,6 +263,21 @@ class YouTubeService {
       response.data.on('end', resolve);
       response.data.on('error', () => {
         resolve();
+      });
+    });
+  }
+
+  /**
+   * Helper exec for system commands
+   */
+  static _execPromise(cmd, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      exec(cmd, { timeout: timeoutMs }, (error, stdout, stderr) => {
+        if (stdout && stdout.trim().length > 0) {
+          return resolve(stdout);
+        }
+        if (error) return reject(error);
+        resolve(stdout || '');
       });
     });
   }
