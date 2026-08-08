@@ -6,14 +6,14 @@ class SupabaseService {
     this.client = null;
     this.isConfigured = false;
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (supabaseUrl && supabaseKey && supabaseUrl !== 'your_supabase_url') {
       try {
         this.client = createClient(supabaseUrl, supabaseKey);
         this.isConfigured = true;
-        console.log('⚡ Connected to Supabase Cloud Database');
+        console.log(`⚡ Connected to Supabase Cloud Database (${supabaseUrl})`);
       } catch (err) {
         console.warn('Supabase initialization notice:', err.message);
       }
@@ -37,7 +37,7 @@ class SupabaseService {
       if (error) throw error;
       return data;
     } catch (err) {
-      console.warn('Supabase getSongs error:', err.message);
+      console.warn('Supabase getSongs notice:', err.message);
       return null;
     }
   }
@@ -70,7 +70,7 @@ class SupabaseService {
       if (error) throw error;
       return data?.[0];
     } catch (err) {
-      console.warn('Supabase saveSong error:', err.message);
+      console.warn('Supabase saveSong notice:', err.message);
       return null;
     }
   }
